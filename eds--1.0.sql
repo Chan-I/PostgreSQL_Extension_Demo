@@ -20,7 +20,7 @@ ON eds.eds_instance_table (ins_name,ins_loc);
 
 
 
-CREATE OR REPLACE FUNCTION eds.show_gauss_node(
+CREATE OR REPLACE FUNCTION show_node(
     OUT ins_id      integer,
     OUT ins_loc     text,
     OUT ins_name    text,
@@ -33,6 +33,6 @@ CREATE OR REPLACE FUNCTION eds.show_gauss_node(
 )
 RETURNS SETOF record
 LANGUAGE C STRICT
-AS 'MODULE_PATHNAME', 'show_gauss_node';
+AS 'MODULE_PATHNAME', 'show_node';
 
 

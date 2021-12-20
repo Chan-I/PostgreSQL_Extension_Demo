@@ -10,7 +10,9 @@ DATA = eds--1.0.sql
 PGFILEDESC = "eds - A Demo Extension for Postgres,Just for fun!"
 
 #regression test
-#REGRESS = eds
+REGRESS = eds
+REGRESS_OPTS = --dlpath=$(top_builddir)/src/test/regress
+EXTRA_CLEAN = sql/paths.sql expected/paths.out
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config

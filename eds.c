@@ -1,7 +1,7 @@
 #include "eds.h"
 
 PG_MODULE_MAGIC;
-PG_FUNCTION_INFO_V1(show_gauss_node);
+PG_FUNCTION_INFO_V1(show_node);
 
 char *
 CurrentUserName(void)
@@ -190,7 +190,7 @@ dblink_connstr_check(const char *connstr)
 }
 
 Datum
-show_gauss_node(PG_FUNCTION_ARGS)
+show_node(PG_FUNCTION_ARGS)
 {
     FuncCallContext *funcctx;
     int call_cntr;
