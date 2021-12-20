@@ -3,10 +3,19 @@
 此扩展是一个最基本的PostgreSQL extension，没有hook钩子等用法。
 可以直接整合进PostgreSQL的contrib目录中。
 
-eds--1.0.sql	创建了一个表，创建了查询此表的一个函数。
-eds.c		实现了此函数。
+├── eds--1.0.sql         定义了extension所涉及的表，涉及的函数等
+├── eds.c		实现接口的代码
+├── eds.control		版本控制信息
+├── eds.h		头文件
+├── expected		测试所需的目录
+│   └── eds.out
+├── Makefile		
+├── README.md	
+└── sql			测试所需的创建环境sql文件
+    └── eds.sql
 
-
-
-postgresql.conf
-`shared_preload_libraries = 'eds'`
+```sql
+make
+make install
+make installcheck
+```
