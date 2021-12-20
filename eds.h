@@ -40,7 +40,7 @@
 #include "utils/varlena.h"
 
 #define PG_CONNECT_PARAMS "hostaddr=127.0.0.1 port=%d user=%s dbname=%s"
-#define SELECT_QUERY "select ins_id,ins_loc,ins_name,hostname,port,username,dbname,passwd,params,isactive from eds.eds_instance_table;"
+#define SELECT_QUERY "select ins_id,ins_loc,ins_name,hostname,port,username,dbname,params,isactive from eds.eds_instance_table;"
 
 extern char * CurrentUserName(void);
 extern char * get_connect_string(const char *servername);

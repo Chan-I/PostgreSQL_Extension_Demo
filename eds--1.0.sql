@@ -1,7 +1,7 @@
 \echo Use "CREATE EXTENSION eds '1.0'" to load this file. \quit
 CREATE SCHEMA eds;
 CREATE TABLE eds.eds_instance_table(
-    ins_id      int8            NOT NULL,
+    ins_id      serial          NOT NULL,
     ins_loc     varchar(32)     NOT NULL,
     ins_name    varchar(256)    NOT NULL,
     hostname    varchar(15)     NOT NULL,
@@ -28,7 +28,6 @@ CREATE OR REPLACE FUNCTION eds.show_gauss_node(
     OUT port        integer,
     OUT username    text,
     OUT dbname      text,
-    OUT passwd      text,
     OUT params      text,
     OUT isactive    boolean
 )
