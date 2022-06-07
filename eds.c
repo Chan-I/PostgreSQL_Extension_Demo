@@ -263,7 +263,7 @@ show_node(PG_FUNCTION_ARGS)
             for(j = 0;j < 12;j++)
             {
                 values[i][j] = (char *) calloc(128,sizeof(char));
-                if(PQgetvalue(result,i,j) == NULL)
+                if(PQgetvalue(result,i,j) == NULL || !strcmp(PQgetvalue(result,i,j), ""))
                     values[i][j] = NULL;
                 else
                     strcpy(values[i][j],PQgetvalue(result,i,j));
