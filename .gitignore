@@ -1,2 +1,7 @@
+*.swp
 *.o
 *.so
+*.output
+parser.[cho]
+scanner.[cho]
+result/
