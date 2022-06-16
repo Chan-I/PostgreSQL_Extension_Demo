@@ -1,21 +1,44 @@
 #include "cpro.h"
-#include "ast.h"
-
-PG_MODULE_MAGIC;
-PG_FUNCTION_INFO_V1(what_is_cpro);
-
-void _PG_init(void);
 
 static	TimestampTz currenttime = 0;
 char	*CproDatabaseName = "";
 bool	enable_cpro = false;
 struct	timeval st,en;
+static	cprostorage cpro;	
+char	read_buf[READ_BUF_MAX];
+static volatile bool need_exit = false;
+static volatile bool got_SIGHUP = false;
 
 
+PG_MODULE_MAGIC;
+PG_FUNCTION_INFO_V1(cpro_query);
+PG_FUNCTION_INFO_V1(cpro_time);
+PG_FUNCTION_INFO_V1(crosstab);
+PG_FUNCTION_INFO_V1(what_is_cpro);
+
+
+Size cprodbstat_memsize(void);
+bool ReadCproFile(void);
+bool beentryCheckState(PgBackendStatus *bs);
+char *CurrentUserName(void);
+char *parse_cpro_list(cprostorage *cpro);
+char *timestamptz_2_str_en(TimestampTz t);
+char *timestamptz_2_str_st(TimestampTz t);
+int  GetCpuNum(void);
+TimestampTz timestamp2timestamptz(Timestamp timestamp);
+void CproWorkerMain(Datum arg);
+void WriteCproFile(void);
+void _PG_init(void);
+void cleanupcproinfo(Relation heap,AttrNumber columnnum,TimestampTz currenttime);
+void collect_cpro_info(cprostorage *cpro);
+void cpro_info(cprostorage *cpro);
+
+
+/* Basic Udf for cpro. Print Info About Cpro Analyzer. */
 Datum
 what_is_cpro(PG_FUNCTION_ARGS)
 {
-	PG_RETURN_TEXT_P(cstring_to_text("cpro - An Extension for Monitering CPU and Processes"));
+	PG_RETURN_TEXT_P(cstring_to_text("Cpro - An Extension For Monitering CPU And Processes"));
 }
 
 void
@@ -45,7 +68,7 @@ _PG_init(void)
 
 		EmitWarningsOnPlaceholders("cpro_db_stat");
 		RequestAddinShmemSpace(cprodbstat_memsize());
-#if PG_VERSION_NUM >= 90600
+#if (PG_VERSION_NUM >= 90600)
 		RequestNamedLWLockTranche("cpro_db_stat", 1);
 #else
 		RequestAddinLWLocks(1);
@@ -71,7 +94,7 @@ _PG_init(void)
 	{
 		ereport(ERROR, (errmsg("Cpro can only be loaded via shared_preload_libraries"),
 					errhint("Add cpro to shared_preload_libraries configuration "
-						"variable in cddb.conf in master and workers.")));
+						"variable in postgres.conf in master and workers.")));
 	}
 }
 
@@ -85,16 +108,139 @@ cprodbstat_memsize(void)
 }
 
 void
+WriteCproFile(void)
+{
+	int fd, len;
+	StringInfo fpath,fcontent;
+	
+	fpath = makeStringInfo();
+	fcontent = makeStringInfo();
+	
+	appendStringInfo(fpath, "%s/cpro.stat", DataDir);
+
+	for (int i = 0; i < cpro.cpu_num || 
+			(appendStringInfo(fcontent, UINT64_FORMAT, cpro.cpro_arr[i]), 0); 
+				appendStringInfo(fcontent, UINT64_FORMAT ",", cpro.cpro_arr[i++]));
+
+	
+	/* Open Cpro File */
+	if ((fd = open(fpath -> data, O_CREAT|O_TRUNC|O_WRONLY,0777)) == -1)
+	{
+		ereport(ERROR, (errmsg("Can not open Cpro File in %s!", fpath -> data)));
+	}
+	
+	/* Write Cpro File */
+	if ((len = write(fd, fcontent -> data, fcontent -> len)) == -1)
+	{
+		ereport(ERROR, (errmsg("Write Cpro File failed!")));	
+	}
+	
+	close(fd);	
+}
+
+bool
+ReadCproFile(void)
+{
+	bool ret;
+	int fd, len, i = 0;
+	char *p;
+	StringInfo fpath = makeStringInfo();
+
+	appendStringInfo(fpath, "%s/cpro.stat", DataDir);
+	
+	/* Open Cpro File */
+	if ((fd = open(fpath -> data, O_RDONLY)) == -1)
+	{
+		ereport(WARNING, (errmsg("Can not open Cpro File in %s!", fpath -> data)));
+		ret = false;
+
+		close(fd);	
+	}
+	else /* file exists */
+	{	
+		ret = true;
+		/* Read Cpro File */
+		if ((len = read(fd, read_buf, READ_BUF_MAX)) == -1)
+		{
+			ereport(ERROR, (errmsg("Read Cpro File failed!")));	
+		}
+		
+		close(fd);	
+
+		/* Insert read_buf into struct cpro... */
+
+		p = strtok(read_buf, ",");
+
+		while (p)
+		{
+			cpro.cpro_arr[i++] = atoll(p);
+			p = strtok(NULL, ",");
+		}	
+		cpro.cpro_arr[i] = atoll(read_buf);
+
+		remove(fpath -> data);
+	}
+	return ret;
+}
+
+static void
+cprostat_exit(SIGNAL_ARGS)
+{
+	int			save_errno = errno;
+
+	need_exit = true;
+	SetLatch(MyLatch);
+
+	errno = save_errno;
+}
+
+/* SIGHUP handler for collector process */
+static void
+cprostat_sighup_handler(SIGNAL_ARGS)
+{
+	int			save_errno = errno;
+
+	got_SIGHUP = true;
+	SetLatch(MyLatch);
+
+	errno = save_errno;
+}
+
+static void
+cpro_die(SIGNAL_ARGS)
+{
+    PG_SETMASK(&BlockSig);
+
+	WriteCproFile();
+
+    ereport(FATAL,
+            (errcode(ERRCODE_ADMIN_SHUTDOWN),
+             errmsg("terminating background worker" 
+					"\"%s\" due to administrator command",
+                    MyBgworkerEntry->bgw_type)));
+}
+
+void
 CproWorkerMain(Datum arg)
 {
-	static cprostorage cpro;	
+	pqsignal(SIGHUP,  cprostat_sighup_handler);
+	pqsignal(SIGINT,  SIG_IGN);
+	pqsignal(SIGTERM, cpro_die);
+	pqsignal(SIGQUIT, cprostat_exit);
+	pqsignal(SIGALRM, SIG_IGN);
+	pqsignal(SIGPIPE, SIG_IGN);
+	pqsignal(SIGUSR1, SIG_IGN);
+	pqsignal(SIGUSR2, SIG_IGN);
+	pqsignal(SIGCHLD, SIG_IGN);
 
 	cpro.cpu_num = GetCpuNum(); 
-	cpro.cpro_arr = palloc(cpro.cpu_num * sizeof(CPRO_ULLONG));
+	cpro.cpro_arr = palloc(cpro.cpu_num * sizeof(uint64));
 
-	for(int i = 0;i <= cpro.cpu_num; cpro.cpro_arr[i++] = 0);
+	memset(read_buf, 0, READ_BUF_MAX);
+	if (!ReadCproFile())
+		for(int i = 0; i <= cpro.cpu_num; cpro.cpro_arr[i++] = 0);
 
-	gettimeofday(&st,NULL);
+	gettimeofday(&st, NULL);
 
 	/* We're now ready to receive signals */
 	BackgroundWorkerUnblockSignals();
@@ -158,8 +304,12 @@ cleanupcproinfo(Relation heap,AttrNumber columnnum,TimestampTz currenttime)
 	ScanKeyData scanKey;
 	HeapTuple tuple = NULL;
 	SysScanDesc scanDescriptor = NULL;
-	ScanKeyInit(&scanKey,columnnum, InvalidStrategy, F_INT8LE,TimestampTzGetDatum(currenttime-86400000000*7));
+
+	ScanKeyInit(&scanKey,columnnum, InvalidStrategy, 
+					F_INT8LE,TimestampTzGetDatum(currenttime-86400000000*7));
+
 	scanDescriptor = systable_beginscan(heap,InvalidOid, false,NULL, 1, &scanKey);
+
 	while (HeapTupleIsValid(tuple = systable_getnext(scanDescriptor)))
 	{
 		simple_heap_delete(heap,&(tuple->t_self));
@@ -181,10 +331,8 @@ collect_cpro_info(cprostorage *cpro)
 	memset(values, 0, sizeof(values));
 	memset(nulls, 0, sizeof(nulls));
 
-
 	values[0] = TimestampTzGetDatum(currenttime);
 	values[1] = CStringGetTextDatum(parse_cpro_list(cpro));
-
 
 	cproInfoRelationId = get_relname_relid("cpro_info", get_namespace_oid("cpro", false));
 	if (!OidIsValid(cproInfoRelationId))
@@ -206,10 +354,12 @@ parse_cpro_list(cprostorage *cpro)
 	StringInfoData *data = makeStringInfo();
 	appendStringInfo(data,"[");				
 	
-	for (int i = 0; i < cpro->cpu_num ; i++)
-		appendStringInfo(data,"{\"cpu_%d\":%lld},", i, cpro -> cpro_arr[i]);
+	for (int i = 0; i < cpro->cpu_num || 
+			(appendStringInfo(data,"{\"cpu_%d\":"
+				UINT64_FORMAT"}]", i, cpro -> cpro_arr[i]), 0) ; 
+					(appendStringInfo(data,"{\"cpu_%d\":"UINT64_FORMAT"},", 
+						i, cpro -> cpro_arr[i]),i++));
 
-	appendStringInfo(data,"{\"cpu_%d\":%lld}]", cpro->cpu_num, cpro -> cpro_arr[cpro->cpu_num]);
 	
 	return data -> data;
 }
@@ -234,7 +384,7 @@ void cpro_info(cprostorage *cpro)
 
 			if (GetPidProcStat(beentry -> st_procpid, proc))
 			{
-				cpro->cpro_arr[Int32GetDatum(proc->processor)]++;  
+				cpro -> cpro_arr[Int32GetDatum(proc->processor)]++;  
 				ereport(DEBUG1, (errmsg("cpu_num:%d"
 										"\tpid:%ld"
 										"\tcpunum:%ld"
@@ -255,7 +405,7 @@ bool
 beentryCheckState(PgBackendStatus *bs)
 {
 	bool ret = false;
-	switch(bs->st_state)
+	switch(bs -> st_state)
 	{
 		case STATE_UNDEFINED:
 		case STATE_IDLE:
@@ -283,12 +433,12 @@ GetCpuNum(void)
 	sprintf(path, "/sys/devices/system/cpu/");
 
 	if (stat(path, &statbuf))
-		ereport(ERROR,errmsg("stat failed on %s,please check pid.",path));
+		ereport(ERROR, errmsg("stat failed on %s,please check pid.", path));
 
 	if (file2str(path, "online", sbuf, sizeof sbuf) >= 0)
-		scanf("%s",sbuf);
+		scanf("%s", sbuf);
 	else
-		ereport(ERROR,errmsg("stat failed on %s",path));
+		ereport(ERROR,errmsg("stat failed on %s", path));
 	
 	token = strtok(sbuf, "-");
 	token = strtok(NULL, "-");
@@ -299,7 +449,6 @@ GetCpuNum(void)
 	return ret;
 }
 
-PG_FUNCTION_INFO_V1(cpro_query);
 Datum
 cpro_query(PG_FUNCTION_ARGS)
 {
@@ -309,7 +458,7 @@ cpro_query(PG_FUNCTION_ARGS)
 	MemoryContext	per_query_ctx;
 	MemoryContext	oldcontext;
 
-	Timestamp start = PG_GETARG_TIMESTAMP(0);	
+	Timestamp start =  PG_ARGISNULL(0) ? 0 : PG_GETARG_TIMESTAMP(0);	
 	Oid cproSchemaId = InvalidOid;
 	Oid cproSETJobRelationId = InvalidOid;
 	Relation cproSETJobsTable = NULL;
@@ -324,6 +473,9 @@ cpro_query(PG_FUNCTION_ARGS)
 
 	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
 		elog(ERROR, "return type must be a row type");
+
+	if (!start)
+		ereport(ERROR, (errmsg("Input Value Can Not Be NULL!")));
 
 	tupleOut = tuplestore_begin_heap(true, false, work_mem);
 	rsinfo->returnMode = SFRM_Materialize;
@@ -361,8 +513,8 @@ cpro_query(PG_FUNCTION_ARGS)
 		memset(values, 0, sizeof(values));
 		memset(nulls, 0, sizeof(nulls));
 		
-		input_time = heap_getattr(tuple,1,tupleDescriptor, &isNull);
-		cpro_array = heap_getattr(tuple,2,tupleDescriptor, &isNull);
+		input_time = heap_getattr(tuple, 1, tupleDescriptor, &isNull);
+		cpro_array = heap_getattr(tuple, 2, tupleDescriptor, &isNull);
 
 		out_time = DatumGetTimestamp(input_time);
 		cproJsonb = TextDatumGetCString(cpro_array);
@@ -372,15 +524,15 @@ cpro_query(PG_FUNCTION_ARGS)
 		if (!parse_module(mod))
 		{
 			/* TO DO ... */
-			if (mod->cpro)
+			if (mod -> cpro)
 			{
-				cforeach (e, mod->cpro->cproList)	
+				cforeach (e, mod -> cpro -> cproList)	
 				{
 					CproList *cprl = (CproList *) clfirst(e);
 					values[0] = TimestampGetDatum(out_time);
-					values[1] = Int64GetDatum(cprl->pidnum);
-					values[2] = Int32GetDatum(cprl->cpunum);
-					ereport(DEBUG1, errmsg("%ld,%ld,%d",out_time,cprl->pidnum,cprl->cpunum));		
+					values[1] = Int64GetDatum(cprl -> pidnum);
+					values[2] = Int32GetDatum(cprl -> cpunum);
+					ereport(DEBUG1, errmsg("%ld,%ld,%d", out_time, cprl -> pidnum, cprl -> cpunum));		
 					tuplestore_putvalues(tupleOut, tupdesc, values, nulls);
 				}
 			}
@@ -403,18 +555,18 @@ compatCrosstabTupleDescs(TupleDesc ret_tupdesc, TupleDesc sql_tupdesc)
 	Oid			sql_atttypid;
 	Oid			ret_atttypid;
 
-	if (ret_tupdesc->natts < 2 ||
-		sql_tupdesc->natts < 3)
+	if (ret_tupdesc -> natts < 2 ||
+		sql_tupdesc -> natts < 3)
 		return false;
 
 	/* check the rowid types match */
-	ret_atttypid = TupleDescAttr(ret_tupdesc, 0)->atttypid;
-	sql_atttypid = TupleDescAttr(sql_tupdesc, 0)->atttypid;
+	ret_atttypid = TupleDescAttr(ret_tupdesc, 0) -> atttypid;
+	sql_atttypid = TupleDescAttr(sql_tupdesc, 0) -> atttypid;
 	if (ret_atttypid != sql_atttypid)
 		ereport(ERROR,
 				(errcode(ERRCODE_DATATYPE_MISMATCH),
 				 errmsg("invalid return type"),
-				 errdetail("SQL rowid datatype does not match " \
+				 errdetail("SQL rowid datatype does not match "
 						   "return rowid datatype.")));
 
 	sql_attr = TupleDescAttr(sql_tupdesc, 2);
@@ -422,7 +574,7 @@ compatCrosstabTupleDescs(TupleDesc ret_tupdesc, TupleDesc sql_tupdesc)
 	{
 		ret_attr = TupleDescAttr(ret_tupdesc, i);
 
-		if (ret_attr->atttypid != sql_attr->atttypid)
+		if (ret_attr -> atttypid != sql_attr->atttypid)
 			return false;
 	}
 
@@ -431,7 +583,6 @@ compatCrosstabTupleDescs(TupleDesc ret_tupdesc, TupleDesc sql_tupdesc)
 }
 
 
-PG_FUNCTION_INFO_V1(crosstab);
 Datum
 crosstab(PG_FUNCTION_ARGS)
 {
@@ -456,18 +607,19 @@ crosstab(PG_FUNCTION_ARGS)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("set-valued function called in context that cannot accept a set")));
+
 	if (!(rsinfo->allowedModes & SFRM_Materialize))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("materialize mode required, but it is not " \
+				 errmsg("materialize mode required, but it is not "
 						"allowed in this context")));
 
-	per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;
+	per_query_ctx = rsinfo -> econtext -> ecxt_per_query_memory;
 
 	/* Connect to SPI manager */
 	if ((ret = SPI_connect()) < 0)
 		/* internal error */
-		elog(ERROR, "crosstab: SPI_connect returned %d", ret);
+		ereport(ERROR, (errmsg("crosstab: SPI_connect returned %d", ret)));
 
 	/* Retrieve the desired rows */
 	ret = SPI_execute(sql, true, 0);
@@ -477,14 +629,14 @@ crosstab(PG_FUNCTION_ARGS)
 	if (ret != SPI_OK_SELECT || proc == 0)
 	{
 		SPI_finish();
-		rsinfo->isDone = ExprEndResult;
+		rsinfo -> isDone = ExprEndResult;
 		PG_RETURN_NULL();
 	}
 
 	spi_tuptable = SPI_tuptable;
-	spi_tupdesc = spi_tuptable->tupdesc;
+	spi_tupdesc = spi_tuptable -> tupdesc;
 
-	if (spi_tupdesc->natts != 3)
+	if (spi_tupdesc -> natts != 3)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("invalid source data SQL statement"),
@@ -515,7 +667,7 @@ crosstab(PG_FUNCTION_ARGS)
 	if (!compatCrosstabTupleDescs(tupdesc, spi_tupdesc))
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("return and sql tuple descriptions are " \
+				 errmsg("return and sql tuple descriptions are "
 						"incompatible")));
 
 	oldcontext = MemoryContextSwitchTo(per_query_ctx);
@@ -539,8 +691,8 @@ crosstab(PG_FUNCTION_ARGS)
 
 	for (call_cntr = 0; call_cntr < max_calls; call_cntr++)
 	{
-		bool		skip_tuple = false;
-		char	  **values;
+		bool	skip_tuple = false;
+		char	**values;
 
 		/* allocate and zero space */
 		values = (char **) palloc0((1 + num_categories) * sizeof(char *));
@@ -622,7 +774,7 @@ char *
 CurrentUserName(void)
 {
     Oid userId = GetUserId();
-    return GetUserNameFromId(userId,false);   
+    return GetUserNameFromId(userId, false);   
 }
 
 TimestampTz
@@ -694,13 +846,12 @@ timestamptz_2_str_en(TimestampTz t)
 	return buf;
 }
 
-PG_FUNCTION_INFO_V1(cpro_time);
 Datum
 cpro_time(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
-	Timestamp start = PG_GETARG_TIMESTAMP(0);
-	Timestamp end = PG_GETARG_TIMESTAMP(1);
+	Timestamp start =   PG_ARGISNULL(0) ? -1 : PG_GETARG_TIMESTAMP(0);
+	Timestamp end =   PG_ARGISNULL(0) ? -1 : PG_GETARG_TIMESTAMP(1);
 	TimestampTz ss,en;
 		
     int call_cntr, max_calls, tupleCount, ret;
@@ -715,9 +866,8 @@ cpro_time(PG_FUNCTION_ARGS)
 	en = timestamp2timestamptz(end);
 	
 	if (start >= end)
-		ereport(ERROR, (errmsg("end_time was ahead of start_time! \n"
-								"\tUsage: cpro_time(start_time, end_time)\n"
-								"\t\t start_time must by ahead of end_time!")));	
+		ereport(ERROR, (errmsg("Usage: cpro_time(start_time, end_time)\n"
+								"\t start_time must by ahead of end_time!")));	
 	
     if (SRF_IS_FIRSTCALL())
     {
@@ -731,8 +881,8 @@ cpro_time(PG_FUNCTION_ARGS)
                      errmsg("function returning record called in context "
                          "that cannot accept type record")));
 
-        appendStringInfo(data,PG_CONNECT_PARAMS,PostPortNumber,CurrentUserName(),get_database_name(MyDatabaseId));
-        elog(DEBUG1,"%s",data->data);
+        appendStringInfo(data,PG_CONNECT_PARAMS,PostPortNumber,
+								CurrentUserName(),get_database_name(MyDatabaseId));
 
         conn = PQconnectdb(data->data);
         ret = PQstatus(conn);
@@ -746,28 +896,29 @@ cpro_time(PG_FUNCTION_ARGS)
         resetStringInfo(data);
 
 		appendStringInfo(data,"SELECT cpro.cpu_num, "
-								"COALESCE(cpro.category_2,0) as cap_time1, "
-								"COALESCE(cpro.category_1,0) as cap_time2, "								
-								"COALESCE(cpro.category_1,0) - COALESCE(cpro.category_2,0) as pid_variation "
-								"from (select cast(row_name as int) as cpu_num, "
-								"cast(category_2 as int), cast(category_1 as int) "
-								"from crosstab2(\'select cast(cpu_num as text), "
-								"cast(cap_time as text), "
-								"cast(pid_num as text) "
-								"from (select cpu_num,cap_time,pid_num "
-								"from cpro_query(\'\'%s\'\') ) as a "
-								"union select cast(cpu_num as text), "
-								"cast(cap_time as text), "
-								"cast(pid_num as text) "
-								"from (select cpu_num,cap_time,pid_num from "
-								"cpro_query(\'\'%s\'\') ) as b order by 1,2 desc;\') "
-								") as cpro order by cpro.cpu_num;",
-                                timestamptz_2_str_en(en), timestamptz_2_str_st(ss));
+								"COALESCE(cpro.category_2,0) AS cap_time1, "
+								"COALESCE(cpro.category_1,0) AS cap_time2, "								
+								"ABS(COALESCE(cpro.category_1,0) - COALESCE(cpro.category_2,0)) AS pid_variation "
+								"FROM (SELECT CAST(row_name AS INT) AS cpu_num, "
+								"CAST(category_1 AS INT), CAST(category_2 AS INT) "
+								"FROM crosstab2(\'SELECT CAST(cpu_num AS TEXT), "
+								"CAST(cap_time AS TEXT), "
+								"CAST(pid_num AS TEXT) "
+								"FROM (SELECT cpu_num,cap_time,pid_num "
+								"FROM cpro_query(\'\'%s\'\') ) AS a "
+								"UNION SELECT CAST(cpu_num AS TEXT), "
+								"CAST(cap_time AS TEXT), "
+								"CAST(pid_num AS TEXT) "
+								"FROM (SELECT cpu_num,cap_time,pid_num FROM "
+								"cpro_query(\'\'%s\'\') ) AS b ORDER BY 1,2 DESC;\') "
+								") AS cpro ORDER BY cpro.cpu_num;",
+                                timestamptz_2_str_st(ss), timestamptz_2_str_en(en));
 
-		elog(DEBUG1, "->>\t%s",data->data);
+	elog(DEBUG1,"->	%s",data->data);
 
         result = PQexec(conn,data->data);
         ret = PQresultStatus(result);
+
         if (ret != PGRES_TUPLES_OK)
         {
             result = PQexec(conn,"ROLLBACK;");
@@ -775,6 +926,7 @@ cpro_time(PG_FUNCTION_ARGS)
             if (ret == PGRES_COMMAND_OK)
                 ereport(ERROR,(errmsg("select failed")));
         }
+
         tupleCount = PQntuples(result);
         if(tupleCount < 0)
         {
@@ -786,6 +938,7 @@ cpro_time(PG_FUNCTION_ARGS)
         funcctx->max_calls = tupleCount;
         max_calls = funcctx->max_calls;
         values = (char ***) calloc(max_calls,sizeof(char **));
+
         for (int i = 0;i < max_calls;i++)
         {
             values[i] = (char **) calloc(12,sizeof(char *));

@@ -4,4 +4,4 @@
 *.output
 parser.[cho]
 scanner.[cho]
-result/
+results/

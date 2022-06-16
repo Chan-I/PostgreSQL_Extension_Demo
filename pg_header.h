@@ -1,6 +1,7 @@
 #ifndef __PG_HEADER_H
 #define __PG_HEADER_H
 
+#include <arpa/inet.h>
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
@@ -9,11 +10,12 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <stdio.h>
-#include <unistd.h>
+#include "dirent.h"
+#include "fcntl.h"
+#include "sys/stat.h"
 #include "postgres.h"
 #include "fmgr.h"
 #include "postmaster/bgworker.h"
-#include "postmaster/pidcpu.h"
 #include "catalog/pg_authid.h"
 #include "storage/ipc.h"
 #include "pgstat.h"
@@ -39,7 +41,6 @@
 #include "libpq-fe.h"
 #include "net/if.h"
 #include "netinet/in.h"
-#include <arpa/inet.h>
 #include "nodes/pg_list.h"
 #include "postmaster/postmaster.h"
 #include "access/htup_details.h"
@@ -53,6 +54,7 @@
 #include "foreign/foreign.h"
 #include "lib/stringinfo.h"
 #include "libpq-int.h"
+#include "libpq/pqsignal.h"
 #include "mb/pg_wchar.h"
 #include "parser/scansup.h"
 #include "utils/acl.h"

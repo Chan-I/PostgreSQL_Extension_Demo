@@ -17,13 +17,13 @@ AS 'MODULE_PATHNAME', 'what_is_cpro';
 
 CREATE FUNCTION cpro_query
 (
-	IN	aaa			timestamp,
+	IN	query_time	timestamp,
     OUT cap_time    timestamp,
     OUT pid_num     bigint,
     OUT cpu_num     int
 )
-RETURNS record
-LANGUAGE C STRICT
+RETURNS SETOF record
+LANGUAGE C PARALLEL SAFE --IMMUTABLE STRICT
 AS 'MODULE_PATHNAME', 'cpro_query';
 
 
@@ -43,7 +43,7 @@ CREATE TYPE cpro.cpro_crosstab_2 AS
 CREATE FUNCTION crosstab2(text)
 RETURNS setof cpro.cpro_crosstab_2
 AS 'MODULE_PATHNAME','crosstab'
-LANGUAGE C STABLE STRICT;
+LANGUAGE C PARALLEL SAFE STABLE STRICT;
 
 
 CREATE FUNCTION cpro_time(
@@ -55,7 +55,7 @@ CREATE FUNCTION cpro_time(
 	OUT pid_variation	int
 )
 RETURNS SETOF record
-LANGUAGE C STRICT
+LANGUAGE C PARALLEL SAFE -- STRICT
 AS 'MODULE_PATHNAME', 'cpro_time';
 
 

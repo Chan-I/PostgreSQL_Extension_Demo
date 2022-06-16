@@ -5,6 +5,7 @@
 
 #define CPRO_MIN (60)
 #define CPRO_DAY (3600 * 24)
+#define READ_BUF_MAX 10240
 
 #define xpfree(var_) \
 	do { \
@@ -31,7 +32,6 @@
 #define PG_CONNECT_PARAMS "hostaddr=127.0.0.1 port=%d user=%s dbname=%s"
 
 
-typedef unsigned long long int CPRO_ULLONG;
 
 typedef struct cprodbstatSharedState
 {
@@ -49,22 +49,8 @@ typedef struct cprodbstatworkernode
 
 typedef struct cprostorage
 {
-	CPRO_ULLONG *cpro_arr;
+	uint64 *cpro_arr;
 	int cpu_num;
 } cprostorage;
-
-
-Size	cprodbstat_memsize(void);
-bool	beentryCheckState(PgBackendStatus *bs);
-char	*CurrentUserName(void);
-char	*parse_cpro_list(cprostorage *cpro);
-char	*timestamptz_2_str_en(TimestampTz t);
-char	*timestamptz_2_str_st(TimestampTz t);
-int		GetCpuNum(void);
-void	CproWorkerMain(Datum arg);
-void	cleanupcproinfo(Relation heap,AttrNumber columnnum,TimestampTz currenttime);
-void	collect_cpro_info(cprostorage *cpro);
-void	cpro_info(cprostorage *cpro);
-TimestampTz	timestamp2timestamptz(Timestamp timestamp);
 
 #endif
