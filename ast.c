@@ -1,7 +1,6 @@
 #include "ast.h"
 #include "parser.h"
 #include "scanner.h"
-#include "cpro.h"
 
 CList *
 clcons(void *datum, CList *list)

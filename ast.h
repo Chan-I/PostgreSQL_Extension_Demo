@@ -178,23 +178,23 @@ typedef struct
 } module;
 
 
-int		GetPidProcStat(pid_t pid, proc_t *p);
-int		file2str(const char *dir, const char * what, char * ret, int cap);
-int		isdigit_strend(const char *str, const char **end);
-int		lscpu_read_numas(struct lscpu_cxt *cxt);
-void	lscpu_cxt_fini(struct lscpu_cxt *cxt);
-void	lscpu_cxt_init(struct lscpu_cxt *cxt);
-void	parse_cpu_list(char* cpu_list, struct lscpu_cxt* cpu_set);
-void	stat2proc(char *S, proc_t *__restrict__ P, int is_proc);
-CList	*clappend(CList *list, void *datum);
-CList	*clcons(void *datum, CList *list);
-CList	*new_clist(CNodeTag type);
-void	check_clist_invariants(const CList *list);
-void	new_head_ccell(CList *list);
-void	new_tail_ccell(CList *list);
-void	clist_free(CList *list);
-void	delete_cpro(Cpro *cpro);
-void	delete_cpro_module(module *mod);
+int	GetPidProcStat(pid_t pid, proc_t *p);
+int	file2str(const char *dir, const char * what, char * ret, int cap);
+int	isdigit_strend(const char *str, const char **end);
+int	lscpu_read_numas(struct lscpu_cxt *cxt);
+void lscpu_cxt_fini(struct lscpu_cxt *cxt);
+void lscpu_cxt_init(struct lscpu_cxt *cxt);
+void parse_cpu_list(char* cpu_list, struct lscpu_cxt* cpu_set);
+void stat2proc(char *S, proc_t *__restrict__ P, int is_proc);
+CList *clappend(CList *list, void *datum);
+CList *clcons(void *datum, CList *list);
+CList *new_clist(CNodeTag type);
+void check_clist_invariants(const CList *list);
+void new_head_ccell(CList *list);
+void new_tail_ccell(CList *list);
+void clist_free(CList *list);
+void delete_cpro(Cpro *cpro);
+void delete_cpro_module(module *mod);
 
 static inline CListCell * clist_head(const CList *l){	return l ? l->head : NULL;}
 static inline CListCell * clist_tail(CList *l)		{	return l ? l->tail : NULL;}
