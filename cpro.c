@@ -1,6 +1,6 @@
 #include "cpro.h"
 
-static	TimestampTz currenttime = 0;
+Timestamp currenttime = 0;
 char	*CproDatabaseName = "";
 bool	enable_cpro = false;
 struct	timeval st,en;
@@ -331,7 +331,7 @@ collect_cpro_info(cprostorage *cpro)
 	memset(values, 0, sizeof(values));
 	memset(nulls, 0, sizeof(nulls));
 
-	values[0] = TimestampTzGetDatum(currenttime);
+	values[0] = TimestampGetDatum(currenttime + CPRO_DATE_ZONE);
 	values[1] = CStringGetTextDatum(parse_cpro_list(cpro));
 
 	cproInfoRelationId = get_relname_relid("cpro_info", get_namespace_oid("cpro", false));
