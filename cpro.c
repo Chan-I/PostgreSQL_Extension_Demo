@@ -281,7 +281,7 @@ CproWorkerMain(Datum arg)
 		/* store cpro every CPRO_MIN */
 		if (!((en.tv_sec - st.tv_sec) % CPRO_MIN))
 		{
-			currenttime = GetCurrentTimestamp();
+			currenttime = GetCurrentTransactionStartTimestamp();
 			
 			/* Store cpro struct into table */
 			collect_cpro_info(&cpro);	
@@ -343,7 +343,8 @@ collect_cpro_info(cprostorage *cpro)
 	memset(values, 0, sizeof(values));
 	memset(nulls, 0, sizeof(nulls));
 
-	values[0] = TimestampGetDatum(currenttime + (GetCproTimeZone() * 1000000));
+	//values[0] = TimestampGetDatum(currenttime + (GetCproTimeZone() * 1000000));
+	values[0] = TimestampGetDatum(currenttime);
 	values[1] = CStringGetTextDatum(parse_cpro_list(cpro));
 
 	cproInfoRelationId = get_relname_relid("cpro_info", get_namespace_oid("cpro", false));

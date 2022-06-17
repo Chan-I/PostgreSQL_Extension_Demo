@@ -4,7 +4,7 @@ CREATE SCHEMA cpro;
 
 CREATE TABLE cpro.cpro_info
 (
-	cpuinfotime	timestamp	NOT NULL,
+	cpuinfotime	timestamp with time zone	NOT NULL,
 	cpuinfo		text		NOT NULL
 );
 
@@ -17,8 +17,8 @@ AS 'MODULE_PATHNAME', 'what_is_cpro';
 
 CREATE FUNCTION cpro_query
 (
-	IN	query_time	timestamp,
-    OUT cap_time    timestamp,
+	IN	query_time	timestamp with time zone,
+    OUT cap_time    timestamp with time zone,
     OUT pid_num     bigint,
     OUT cpu_num     int
 )
@@ -47,8 +47,8 @@ LANGUAGE C PARALLEL SAFE STABLE STRICT;
 
 
 CREATE FUNCTION cpro_time(
-	IN	start_time		timestamp,
-	IN	end_time		timestamp,
+	IN	start_time		timestamp with time zone,
+	IN	end_time		timestamp with time zone,
 	OUT cpu_num			int,
 	OUT pid_num_time1	int,
 	OUT pid_num_time2	int,
