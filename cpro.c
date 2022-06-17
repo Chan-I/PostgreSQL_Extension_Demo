@@ -25,6 +25,7 @@ char *parse_cpro_list(cprostorage *cpro);
 char *timestamptz_2_str_en(TimestampTz t);
 char *timestamptz_2_str_st(TimestampTz t);
 int  GetCpuNum(void);
+long int GetCproTimeZone(void);
 TimestampTz timestamp2timestamptz(Timestamp timestamp);
 void CproWorkerMain(Datum arg);
 void WriteCproFile(void);
@@ -317,6 +318,17 @@ cleanupcproinfo(Relation heap,AttrNumber columnnum,TimestampTz currenttime)
 	systable_endscan(scanDescriptor);
 }
 
+long int
+GetCproTimeZone(void)
+{
+	time_t t = time(NULL);
+	struct tm lt = {0};
+	
+	localtime_r(&t, &lt);
+	
+	return lt.tm_gmtoff;
+}
+
 void
 collect_cpro_info(cprostorage *cpro)
 {
@@ -331,7 +343,7 @@ collect_cpro_info(cprostorage *cpro)
 	memset(values, 0, sizeof(values));
 	memset(nulls, 0, sizeof(nulls));
 
-	values[0] = TimestampGetDatum(currenttime + CPRO_DATE_ZONE);
+	values[0] = TimestampGetDatum(currenttime + (GetCproTimeZone() * 1000000));
 	values[1] = CStringGetTextDatum(parse_cpro_list(cpro));
 
 	cproInfoRelationId = get_relname_relid("cpro_info", get_namespace_oid("cpro", false));

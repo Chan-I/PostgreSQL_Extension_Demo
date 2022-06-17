@@ -6,7 +6,6 @@
 #define CPRO_MIN (60)
 #define CPRO_DAY (3600 * 24)
 #define READ_BUF_MAX 10240
-#define CPRO_DATE_ZONE (28800000000)
 
 #define xpfree(var_) \
 	do { \
