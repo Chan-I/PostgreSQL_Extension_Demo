@@ -281,7 +281,7 @@ CproWorkerMain(Datum arg)
 		/* store cpro every CPRO_MIN */
 		if (!((en.tv_sec - st.tv_sec) % CPRO_MIN))
 		{
-			currenttime = GetCurrentTransactionStartTimestamp();
+			currenttime = GetCurrentTimestamp();
 			
 			/* Store cpro struct into table */
 			collect_cpro_info(&cpro);	
